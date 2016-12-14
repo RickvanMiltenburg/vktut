@@ -1,0 +1,820 @@
+diff --git "a/C:\\Dev\\vktut_git\\project\\vktut\\src\\demos\\_DEFERRED_ASSIGNMENT\\forward_post_spinning_texcube.c" "b/C:\\Dev\\vktut_git\\project\\vktut\\src\\demos\\_DEFERRED_ASSIGNMENT\\deferred_post_spinning_texcube.c"
+index 28e23e3..f0c1ffc 100644
+--- "a/C:\\Dev\\vktut_git\\project\\vktut\\src\\demos\\_DEFERRED_ASSIGNMENT\\forward_post_spinning_texcube.c"
++++ "b/C:\\Dev\\vktut_git\\project\\vktut\\src\\demos\\_DEFERRED_ASSIGNMENT\\deferred_post_spinning_texcube.c"
+@@ -116,7 +116,8 @@ enum
+ 
+ enum
+ {
+-	SUBPASS_FORWARD,
++	SUBPASS_DEFERRED,
++	SUBPASS_DEFERRED_LIGHTING,
+ 	SUBPASS_POST,
+ 
+ 	SUBPASS_COUNT
+@@ -124,7 +125,8 @@ enum
+ 
+ enum
+ {
+-	PIPELINE_FORWARD,
++	PIPELINE_DEFERRED,
++	PIPELINE_DEFERRED_LIGHTING,
+ 	PIPELINE_POST,
+ 
+ 	PIPELINE_COUNT,
+@@ -139,6 +141,10 @@ enum
+ 
+ enum
+ {
++	ATTACHMENT_INTERMEDIATE_GBUFFER1,
++	ATTACHMENT_INTERMEDIATE_GBUFFER2,
++	ATTACHMENT_INTERMEDIATE_GBUFFER3,
++	
+ 	ATTACHMENT_INTERMEDIATE_COLOR,
+ 	ATTACHMENT_INTERMEDIATE_DEPTH,
+ 	ATTACHMENT_FRAMEBUFFER,
+@@ -165,6 +171,10 @@ enum
+ 
+ enum
+ {
++	TRANSIENT_ATTACHMENT_GBUFFER1,
++	TRANSIENT_ATTACHMENT_GBUFFER2,
++	TRANSIENT_ATTACHMENT_GBUFFER3,
++
+ 	TRANSIENT_ATTACHMENT_COLOR,
+ 	TRANSIENT_ATTACHMENT_DEPTH,
+ 
+@@ -298,9 +308,11 @@ struct app_s
+ 	{
+ 		VkImage imageIntermediateColor;
+ 		VkImage imageIntermediateDepth;
++		VkImage imageGBuffer[3];
+ 
+ 		VkImageView imageViewIntermediateColor;
+ 		VkImageView imageViewIntermediateDepth;
++		VkImageView imageViewGBuffer[3];
+ 
+ 		VkDeviceMemory memory;
+ 	} attachments;
+@@ -971,10 +983,13 @@ int32_t app_render ( app_t* app, double dt )
+ 				.renderPass      = app->renderpass.renderPass,
+ 				.framebuffer     = app->renderpass.framebuffers[app->backbufferIndex],
+ 				.renderArea      = { .offset = { 0, 0 }, .extent = { windowWidth, windowHeight } },
+-				.clearValueCount = 2,
+-				.pClearValues    = (VkClearValue[2]){
+-					[0] = { .color.float32 = { sinf ( x ) * 0.5f + 0.5f, sinf ( y ) * 0.5f + 0.5f, sinf ( z ) * 0.5f + 0.5f, 1.0f } },
+-					[1] = { .depthStencil  = { 1.0f, 0 } },
++				.clearValueCount = 5,
++				.pClearValues    = (VkClearValue[5]){
++					[ATTACHMENT_INTERMEDIATE_GBUFFER1] = { .color.float32 = { 0, 0, 0, 0 } },
++					[ATTACHMENT_INTERMEDIATE_GBUFFER2] = { .color.float32 = { 0, 0, 0, 0 } },
++					[ATTACHMENT_INTERMEDIATE_GBUFFER3] = { .color.float32 = { 0, 0, 0, 0 } },
++					[ATTACHMENT_INTERMEDIATE_COLOR]    = { .color.float32 = { 0, 0, 0, 0 } },
++					[ATTACHMENT_INTERMEDIATE_DEPTH]    = { .depthStencil  = { 1.0f, 0 } },
+ 				},
+ 			},
+ 			VK_SUBPASS_CONTENTS_INLINE
+@@ -987,7 +1002,7 @@ int32_t app_render ( app_t* app, double dt )
+ 	
+ 			vkCmdBindPipeline (
+ 				renderCommandBuffer->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+-				app->renderpass.pipeline[PIPELINE_FORWARD]
++				app->renderpass.pipeline[PIPELINE_DEFERRED]
+ 			);
+ 			
+ 			{
+@@ -995,8 +1010,8 @@ int32_t app_render ( app_t* app, double dt )
+ 				{
+ 					app_render_model (
+ 						&app->model[i], &p, &v, renderCommandBuffer->commandBuffer,
+-						app->pipelineLayout[PIPELINE_FORWARD], app->modelDescriptorSets,
+-						app->descriptorSet[PIPELINE_FORWARD], 1, (uint32_t[1]) { lightBufferOffset }
++						app->pipelineLayout[PIPELINE_DEFERRED], app->modelDescriptorSets,
++						app->descriptorSet[PIPELINE_DEFERRED], 0, NULL
+ 					);
+ 				}
+ 			}
+@@ -1010,6 +1025,37 @@ int32_t app_render ( app_t* app, double dt )
+ 		{
+ 			vkCmdBindPipeline (
+ 				renderCommandBuffer->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
++				app->renderpass.pipeline[PIPELINE_DEFERRED_LIGHTING]
++			);
++	
++			vkCmdPushConstants (
++				renderCommandBuffer->commandBuffer,
++				app->pipelineLayout[PIPELINE_POST],
++				VK_SHADER_STAGE_FRAGMENT_BIT,
++				0,
++				1 * sizeof ( float ),
++				(float[1]){ windowWidth / (float)windowHeight }
++			);
++
++			vkCmdBindDescriptorSets (
++				renderCommandBuffer->commandBuffer,
++				VK_PIPELINE_BIND_POINT_GRAPHICS,
++				app->pipelineLayout[PIPELINE_DEFERRED_LIGHTING],
++				0, 1, (VkDescriptorSet[1]){ app->descriptorSet[PIPELINE_DEFERRED_LIGHTING] },
++				1, (uint32_t[1]) { lightBufferOffset }
++			);
++
++			vkCmdDraw ( renderCommandBuffer->commandBuffer, 3, 1, 0, 0 );
++		}
++	
++		// Now that we have completed the forward subpass, we will move onto the post-processing
++		// subpass.
++	
++		vkCmdNextSubpass ( renderCommandBuffer->commandBuffer, VK_SUBPASS_CONTENTS_INLINE );
++	
++		{
++			vkCmdBindPipeline (
++				renderCommandBuffer->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+ 				app->renderpass.pipeline[PIPELINE_POST]
+ 			);
+ 	
+@@ -1273,14 +1319,14 @@ int32_t app_init_descriptor_sets ( app_t* app )
+ 		&(VkDescriptorPoolCreateInfo){
+ 			.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+ 			.flags         = 0,
+-			.maxSets       = textureCount + 2,
++			.maxSets       = textureCount + 3,
+ 			.poolSizeCount = 5,
+ 			.pPoolSizes    = (VkDescriptorPoolSize[5]){
+ 				{ .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,          .descriptorCount = textureCount+1 },
+ 				{ .type = VK_DESCRIPTOR_TYPE_SAMPLER,                .descriptorCount = textureCount+1 },
+-				{ .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = textureCount+1 },
+-				{ .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, .descriptorCount = textureCount+1 },
+-				{ .type = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT,       .descriptorCount = 1 },
++				{ .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1 },
++				{ .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, .descriptorCount = 1 },
++				{ .type = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT,       .descriptorCount = 4 },
+ 			},
+ 		},
+ 		NULL,
+@@ -1295,8 +1341,8 @@ int32_t app_init_descriptor_sets ( app_t* app )
+ 		app->device.device,
+ 		&(VkDescriptorSetLayoutCreateInfo){
+ 			.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+-			.bindingCount = 4,
+-			.pBindings    = (VkDescriptorSetLayoutBinding[4]){
++			.bindingCount = 2,
++			.pBindings    = (VkDescriptorSetLayoutBinding[2]){
+ 				{
+ 					.binding         = 0,
+ 					.descriptorType  = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+@@ -1309,23 +1355,44 @@ int32_t app_init_descriptor_sets ( app_t* app )
+ 					.descriptorCount = 1,
+ 					.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT,
+ 				},
++			},
++		},
++		NULL,
++		&app->descriptorSetLayout[PIPELINE_DEFERRED]
++	);
++	if ( vkResult != VK_SUCCESS )
++		return platform_throw_error ( -1, "vkCreateDescriptorSetLayout failed (%u)", vkResult );
++
++	
++	vkResult = vkCreateDescriptorSetLayout (
++		app->device.device,
++		&(VkDescriptorSetLayoutCreateInfo){
++			.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
++			.bindingCount = 3,
++			.pBindings    = (VkDescriptorSetLayoutBinding[3]){
++				{
++					.binding            = 0,
++					.descriptorType     = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT,
++					.descriptorCount    = 3,
++					.stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT,
++				},
+ 				{
+-					.binding            = 2,
++					.binding            = 3,
+ 					.descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+ 					.descriptorCount    = 1,
+ 					.stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT,
+ 					.pImmutableSamplers = (VkSampler[1]) { app->staticResources.samplerShadow },
+ 				},
+ 				{
+-					.binding            = 3,
++					.binding            = 4,
+ 					.descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+ 					.descriptorCount    = 1,
+ 					.stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT,
+ 				}
+-			},
++			}
+ 		},
+ 		NULL,
+-		&app->descriptorSetLayout[PIPELINE_FORWARD]
++		&app->descriptorSetLayout[PIPELINE_DEFERRED_LIGHTING]
+ 	);
+ 	if ( vkResult != VK_SUCCESS )
+ 		return platform_throw_error ( -1, "vkCreateDescriptorSetLayout failed (%u)", vkResult );
+@@ -1376,9 +1443,10 @@ int32_t app_init_descriptor_sets ( app_t* app )
+ 		&(VkDescriptorSetAllocateInfo){
+ 			.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+ 			.descriptorPool     = app->descriptorPool,
+-			.descriptorSetCount = 2,
+-			.pSetLayouts        = (VkDescriptorSetLayout[2]){
+-				app->descriptorSetLayout[PIPELINE_FORWARD],
++			.descriptorSetCount = 3,
++			.pSetLayouts        = (VkDescriptorSetLayout[3]){
++				app->descriptorSetLayout[PIPELINE_DEFERRED],
++				app->descriptorSetLayout[PIPELINE_DEFERRED_LIGHTING],
+ 				app->descriptorSetLayout[PIPELINE_POST],
+ 			},
+ 		},
+@@ -1395,7 +1463,7 @@ int32_t app_init_descriptor_sets ( app_t* app )
+ 		VkDescriptorSetLayout* dsLayouts =
+ 			alloca ( app->model->textureCount * sizeof ( VkDescriptorSetLayout ) );
+ 		for ( uint32_t i = 0; i < app->model->textureCount; i++ )
+-			dsLayouts[i] = app->descriptorSetLayout[PIPELINE_FORWARD];
++			dsLayouts[i] = app->descriptorSetLayout[PIPELINE_DEFERRED];
+ 
+ 		app->modelDescriptorSets = malloc ( app->model->textureCount * sizeof ( VkDescriptorSet ) );
+ 		vkResult = vkAllocateDescriptorSets (
+@@ -1424,7 +1492,7 @@ int32_t app_init_descriptor_sets ( app_t* app )
+ 		4, (VkWriteDescriptorSet[4]){
+ 			{
+ 				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+-				.dstSet          = app->descriptorSet[PIPELINE_FORWARD],
++				.dstSet          = app->descriptorSet[PIPELINE_DEFERRED],
+ 				.dstBinding      = 0,
+ 				.descriptorCount = 1,
+ 				.descriptorType  = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+@@ -1435,7 +1503,7 @@ int32_t app_init_descriptor_sets ( app_t* app )
+ 			},
+ 			{
+ 				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+-				.dstSet          = app->descriptorSet[PIPELINE_FORWARD],
++				.dstSet          = app->descriptorSet[PIPELINE_DEFERRED],
+ 				.dstBinding      = 1,
+ 				.descriptorCount = 1,
+ 				.descriptorType  = VK_DESCRIPTOR_TYPE_SAMPLER,
+@@ -1445,8 +1513,8 @@ int32_t app_init_descriptor_sets ( app_t* app )
+ 			},
+ 			{
+ 				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+-				.dstSet          = app->descriptorSet[PIPELINE_FORWARD],
+-				.dstBinding      = 2,
++				.dstSet          = app->descriptorSet[PIPELINE_DEFERRED_LIGHTING],
++				.dstBinding      = 3,
+ 				.descriptorCount = 1,
+ 				.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+ 				.pImageInfo      = &(VkDescriptorImageInfo){
+@@ -1456,8 +1524,8 @@ int32_t app_init_descriptor_sets ( app_t* app )
+ 			},
+ 			{
+ 				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+-				.dstSet          = app->descriptorSet[PIPELINE_FORWARD],
+-				.dstBinding      = 3,
++				.dstSet          = app->descriptorSet[PIPELINE_DEFERRED_LIGHTING],
++				.dstBinding      = 4,
+ 				.descriptorCount = 1,
+ 				.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+ 				.pBufferInfo     = &(VkDescriptorBufferInfo){
+@@ -1487,7 +1555,7 @@ int32_t app_init_descriptor_sets ( app_t* app )
+ 		};
+ 
+ 		VkWriteDescriptorSet* descriptorWriteOps =
+-			alloca ( (app->model->textureCount*4) * sizeof ( VkWriteDescriptorSet ) );
++			alloca ( (app->model->textureCount*2) * sizeof ( VkWriteDescriptorSet ) );
+ 		VkDescriptorImageInfo* descriptorWriteImageInfo =
+ 			alloca ( (app->model->textureCount*2) * sizeof ( VkDescriptorImageInfo ) );
+ 
+@@ -1520,27 +1588,11 @@ int32_t app_init_descriptor_sets ( app_t* app )
+ 				.descriptorType  = VK_DESCRIPTOR_TYPE_SAMPLER,
+ 				.pImageInfo      = imageInfo,
+ 			};
+-			descriptorWriteOps[writeOpIdx++] = (VkWriteDescriptorSet){
+-				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+-				.dstSet          = app->modelDescriptorSets[i],
+-				.dstBinding      = 2,
+-				.descriptorCount = 1,
+-				.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+-				.pImageInfo      = &shadowMap,
+-			};
+-			descriptorWriteOps[writeOpIdx++] = (VkWriteDescriptorSet){
+-				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+-				.dstSet          = app->modelDescriptorSets[i],
+-				.dstBinding      = 3,
+-				.descriptorCount = 1,
+-				.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+-				.pBufferInfo     = &lightBuffer,
+-			};
+ 		}
+ 
+ 		vkUpdateDescriptorSets (
+ 			app->device.device,
+-			(app->model->textureCount*4), descriptorWriteOps,
++			(app->model->textureCount*2), descriptorWriteOps,
+ 			0, NULL
+ 		);
+ 	}
+@@ -1555,7 +1607,8 @@ int32_t app_init_descriptor_sets ( app_t* app )
+ int32_t app_destroy_descriptor_sets ( app_t* app )
+ {
+ 	vkDestroyDescriptorPool ( app->device.device, app->descriptorPool, NULL );
+-	vkDestroyDescriptorSetLayout ( app->device.device, app->descriptorSetLayout[PIPELINE_FORWARD], NULL );
++	vkDestroyDescriptorSetLayout ( app->device.device, app->descriptorSetLayout[PIPELINE_DEFERRED], NULL );
++	vkDestroyDescriptorSetLayout ( app->device.device, app->descriptorSetLayout[PIPELINE_DEFERRED_LIGHTING], NULL );
+ 	vkDestroyDescriptorSetLayout ( app->device.device, app->descriptorSetLayout[PIPELINE_POST], NULL );
+ 	return 0;
+ }
+@@ -1578,21 +1631,36 @@ int32_t app_init_renderpass ( app_t* app )
+ 	// graphics pipelines and during rendering, allowing the graphics pipelines to be optimized
+ 	// to the furthest extent possible beforehand for during rendering operations.
+ 
+-	enum
+-	{
+-		ATTACHMENT_INTERMEDIATE_COLOR,
+-		ATTACHMENT_INTERMEDIATE_DEPTH,
+-		ATTACHMENT_FRAMEBUFFER,
+-
+-		ATTACHMENT_COUNT
+-	};
+-
+ 	VkResult result = vkCreateRenderPass (
+ 		app->device.device,
+ 		&(VkRenderPassCreateInfo){
+ 			.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+ 			.attachmentCount = ATTACHMENT_COUNT,
+ 			.pAttachments    = (VkAttachmentDescription[ATTACHMENT_COUNT]){
++				[ATTACHMENT_INTERMEDIATE_GBUFFER1] = {
++					.format        = VK_FORMAT_R32G32B32A32_SFLOAT,
++					.samples       = VK_SAMPLE_COUNT_1_BIT,
++					.loadOp        = VK_ATTACHMENT_LOAD_OP_CLEAR,
++					.storeOp       = VK_ATTACHMENT_STORE_OP_DONT_CARE,
++					.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
++					.finalLayout   = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
++				},
++				[ATTACHMENT_INTERMEDIATE_GBUFFER2] = {
++					.format        = VK_FORMAT_R32G32B32A32_SFLOAT,
++					.samples       = VK_SAMPLE_COUNT_1_BIT,
++					.loadOp        = VK_ATTACHMENT_LOAD_OP_CLEAR,
++					.storeOp       = VK_ATTACHMENT_STORE_OP_DONT_CARE,
++					.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
++					.finalLayout   = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
++				},
++				[ATTACHMENT_INTERMEDIATE_GBUFFER3] = {
++					.format        = VK_FORMAT_R32G32B32A32_SFLOAT,
++					.samples       = VK_SAMPLE_COUNT_1_BIT,
++					.loadOp        = VK_ATTACHMENT_LOAD_OP_CLEAR,
++					.storeOp       = VK_ATTACHMENT_STORE_OP_DONT_CARE,
++					.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
++					.finalLayout   = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
++				},
+ 				[ATTACHMENT_INTERMEDIATE_COLOR] = {
+ 					.format        = VK_FORMAT_R8G8B8A8_SRGB,
+ 					.samples       = VK_SAMPLE_COUNT_1_BIT,
+@@ -1620,12 +1688,20 @@ int32_t app_init_renderpass ( app_t* app )
+ 			},
+ 			.subpassCount = SUBPASS_COUNT,
+ 			.pSubpasses   = (VkSubpassDescription[SUBPASS_COUNT]){
+-				[SUBPASS_FORWARD] = {
++				[SUBPASS_DEFERRED] = {
+ 					.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS,
+-					.colorAttachmentCount = 1,
+-					.pColorAttachments    = (VkAttachmentReference[1]){
++					.colorAttachmentCount = 3,
++					.pColorAttachments    = (VkAttachmentReference[3]){
+ 						{
+-							.attachment = ATTACHMENT_INTERMEDIATE_COLOR,
++							.attachment = ATTACHMENT_INTERMEDIATE_GBUFFER1,
++							.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
++						},
++						{
++							.attachment = ATTACHMENT_INTERMEDIATE_GBUFFER2,
++							.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
++						},
++						{
++							.attachment = ATTACHMENT_INTERMEDIATE_GBUFFER3,
+ 							.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+ 						},
+ 					},
+@@ -1634,6 +1710,31 @@ int32_t app_init_renderpass ( app_t* app )
+ 						.layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+ 					},
+ 				},
++				[SUBPASS_DEFERRED_LIGHTING] = {
++					.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS,
++					.inputAttachmentCount = 3,
++					.pInputAttachments    = (VkAttachmentReference[3]){
++						{
++							.attachment = ATTACHMENT_INTERMEDIATE_GBUFFER1,
++							.layout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
++						},
++						{
++							.attachment = ATTACHMENT_INTERMEDIATE_GBUFFER2,
++							.layout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
++						},
++						{
++							.attachment = ATTACHMENT_INTERMEDIATE_GBUFFER3,
++							.layout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
++						},
++					},
++					.colorAttachmentCount = 1,
++					.pColorAttachments    = (VkAttachmentReference[1]){
++						{
++							.attachment = ATTACHMENT_INTERMEDIATE_COLOR,
++							.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
++						},
++					},
++				},
+ 				[SUBPASS_POST]    = {
+ 					.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS,
+ 					.inputAttachmentCount = 1,
+@@ -1652,10 +1753,19 @@ int32_t app_init_renderpass ( app_t* app )
+ 					},
+ 				},
+ 			},
+-			.dependencyCount = 1,
+-			.pDependencies   = (VkSubpassDependency[1]){
++			.dependencyCount = 2,
++			.pDependencies   = (VkSubpassDependency[2]){
++				{
++					.srcSubpass      = SUBPASS_DEFERRED,
++					.dstSubpass      = SUBPASS_DEFERRED_LIGHTING,
++					.srcStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
++					.dstStageMask    = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
++					.srcAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
++					.dstAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT,
++					.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT,
++				},
+ 				{
+-					.srcSubpass      = SUBPASS_FORWARD,
++					.srcSubpass      = SUBPASS_DEFERRED_LIGHTING,
+ 					.dstSubpass      = SUBPASS_POST,
+ 					.srcStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+ 					.dstStageMask    = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+@@ -1733,7 +1843,7 @@ int32_t app_init_graphics_pipeline_prerequisites ( app_t* app )
+ 		&(VkPipelineLayoutCreateInfo){
+ 			.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+ 			.setLayoutCount         = 1,
+-			.pSetLayouts            = (VkDescriptorSetLayout[1]){ app->descriptorSetLayout[PIPELINE_FORWARD] },
++			.pSetLayouts            = (VkDescriptorSetLayout[1]){ app->descriptorSetLayout[PIPELINE_DEFERRED] },
+ 			.pushConstantRangeCount = 2,
+ 			.pPushConstantRanges    = (VkPushConstantRange[2]){
+ 				{
+@@ -1749,7 +1859,21 @@ int32_t app_init_graphics_pipeline_prerequisites ( app_t* app )
+ 			}
+ 		},
+ 		NULL,
+-		&app->pipelineLayout[PIPELINE_FORWARD]
++		&app->pipelineLayout[PIPELINE_DEFERRED]
++	);
++	if ( vkResult != VK_SUCCESS )
++		return platform_throw_error ( -1, "vkCreatePipelineLayout failed (%u)", vkResult );
++
++	vkResult = vkCreatePipelineLayout (
++		app->device.device,
++		&(VkPipelineLayoutCreateInfo){
++			.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
++			.setLayoutCount         = 1,
++			.pSetLayouts            = (VkDescriptorSetLayout[1]){ app->descriptorSetLayout[PIPELINE_DEFERRED_LIGHTING] },
++			.pushConstantRangeCount = 0,
++		},
++		NULL,
++		&app->pipelineLayout[PIPELINE_DEFERRED_LIGHTING]
+ 	);
+ 	if ( vkResult != VK_SUCCESS )
+ 		return platform_throw_error ( -1, "vkCreatePipelineLayout failed (%u)", vkResult );
+@@ -1829,9 +1953,9 @@ int32_t app_destroy_graphics_pipeline_prerequisites ( app_t* app )
+ 	// later on. If two pipelines use the same pipeline layouts, the bindings are guaranteed to be
+ 	// compatible across both pipelines.
+ 
+-	vkDestroyPipelineLayout ( app->device.device, app->pipelineLayout[PIPELINE_FORWARD], NULL );
+-	vkDestroyPipelineLayout ( app->device.device, app->pipelineLayout[PIPELINE_POST], NULL );
+-	vkDestroyPipelineCache ( app->device.device, app->pipelineCache, NULL );
++	//vkDestroyPipelineLayout ( app->device.device, app->pipelineLayout[PIPELINE_FORWARD], NULL );
++	//vkDestroyPipelineLayout ( app->device.device, app->pipelineLayout[PIPELINE_POST], NULL );
++	//vkDestroyPipelineCache ( app->device.device, app->pipelineCache, NULL );
+ 	return 0;
+ }
+ 
+@@ -1850,8 +1974,9 @@ int32_t app_init_graphics_pipelines ( app_t* app, uint32_t windowWidth, uint32_t
+ 	enum
+ 	{
+ 		SHADER_SHADOW_VERT,
+-		SHADER_FORWARD_VERT,
+-		SHADER_FORWARD_FRAG,
++		SHADER_DEFERRED_VERT,
++		SHADER_DEFERRED_FRAG,
++		SHADER_DEFERRED_LIGHTING_FRAG,
+ 		SHADER_POST_VERT,
+ 		SHADER_POST_FRAG,
+ 
+@@ -1863,11 +1988,12 @@ int32_t app_init_graphics_pipelines ( app_t* app, uint32_t windowWidth, uint32_t
+ 		const char* path;
+ 		VkShaderModule outModule;
+ 	} shaders[SHADER_COUNT] = {
+-		[SHADER_SHADOW_VERT]  = { .path = "shaders/shadow_v.spv", },
+-		[SHADER_FORWARD_VERT] = { .path = "shaders/forward_v.spv", },
+-		[SHADER_FORWARD_FRAG] = { .path = "shaders/forward_f.spv", },
+-		[SHADER_POST_VERT]    = { .path = "shaders/post_v.spv",    },
+-		[SHADER_POST_FRAG]    = { .path = "shaders/post_f.spv",    },
++		[SHADER_SHADOW_VERT]            = { .path = "shaders/shadow_v.spv", },
++		[SHADER_DEFERRED_VERT]          = { .path = "shaders/forward_v.spv", },
++		[SHADER_DEFERRED_FRAG]          = { .path = "shaders/deferred_f.spv", },
++		[SHADER_DEFERRED_LIGHTING_FRAG] = { .path = "shaders/deferred_lighting_f.spv", },
++		[SHADER_POST_VERT]              = { .path = "shaders/post_v.spv",    },
++		[SHADER_POST_FRAG]              = { .path = "shaders/post_f.spv",    },
+ 	};
+ 
+ 	// Create the aforementioned shader modules. If any of these fail, check the documentation
+@@ -1926,7 +2052,7 @@ int32_t app_init_graphics_pipelines ( app_t* app, uint32_t windowWidth, uint32_t
+ 		app->pipelineCache,
+ 		PIPELINE_COUNT,
+ 		(VkGraphicsPipelineCreateInfo[PIPELINE_COUNT]){
+-			[PIPELINE_FORWARD] = {
++			[PIPELINE_DEFERRED]          = {
+ 				.sType      = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+ 				.flags      = VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT,
+ 				.stageCount = 2,
+@@ -1934,13 +2060,13 @@ int32_t app_init_graphics_pipelines ( app_t* app, uint32_t windowWidth, uint32_t
+ 					{
+ 						.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+ 						.stage  = VK_SHADER_STAGE_VERTEX_BIT,
+-						.module = shaders[SHADER_FORWARD_VERT].outModule,
++						.module = shaders[SHADER_DEFERRED_VERT].outModule,
+ 						.pName  = "main",
+ 					},
+ 					{
+ 						.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+ 						.stage  = VK_SHADER_STAGE_FRAGMENT_BIT,
+-						.module = shaders[SHADER_FORWARD_FRAG].outModule,
++						.module = shaders[SHADER_DEFERRED_FRAG].outModule,
+ 						.pName  = "main",
+ 					},
+ 				},
+@@ -2023,21 +2149,116 @@ int32_t app_init_graphics_pipelines ( app_t* app, uint32_t windowWidth, uint32_t
+ 				.pColorBlendState = &(VkPipelineColorBlendStateCreateInfo){
+ 					.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+ 					.logicOpEnable   = VK_FALSE,
++					.attachmentCount = 3,
++					.pAttachments    = (VkPipelineColorBlendAttachmentState[3]){
++						{
++							.blendEnable    = VK_FALSE,
++							.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
++								| VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
++						},
++						{
++							.blendEnable    = VK_FALSE,
++							.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
++								| VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
++						},
++						{
++							.blendEnable    = VK_FALSE,
++							.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
++								| VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
++						},
++					},
++				},
++				.pDynamicState = NULL,
++				.layout        = app->pipelineLayout[PIPELINE_DEFERRED],
++				.renderPass    = app->renderpass.renderPass,
++				.subpass       = SUBPASS_DEFERRED,
++			},
++			[PIPELINE_DEFERRED_LIGHTING] = {
++				.sType      = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
++				.flags      = VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT,
++				.stageCount = 2,
++				.pStages    = (VkPipelineShaderStageCreateInfo[2]){
++					{
++						.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
++						.stage  = VK_SHADER_STAGE_VERTEX_BIT,
++						.module = shaders[SHADER_POST_VERT].outModule,
++						.pName  = "main",
++					},
++					{
++						.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
++						.stage  = VK_SHADER_STAGE_FRAGMENT_BIT,
++						.module = shaders[SHADER_DEFERRED_LIGHTING_FRAG].outModule,
++						.pName  = "main",
++					},
++				},
++				.pVertexInputState = &(VkPipelineVertexInputStateCreateInfo){
++					.sType             = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
++					.vertexBindingDescriptionCount   = 0,
++					.pVertexBindingDescriptions      = NULL,
++					.vertexAttributeDescriptionCount = 0,
++					.pVertexAttributeDescriptions    = NULL,
++				},
++				.pInputAssemblyState = &(VkPipelineInputAssemblyStateCreateInfo){
++					.sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
++					.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
++				},
++				.pViewportState = &(VkPipelineViewportStateCreateInfo){
++					.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
++					.viewportCount = 1,
++					.pViewports    = (VkViewport[1]){
++						{
++							.width = (float)windowWidth, .height = (float)windowHeight,
++							.minDepth = 0.0f, .maxDepth =  1.0f,
++						},
++					},
++					.scissorCount = 1,
++					.pScissors    = (VkRect2D[1]){
++						{ .extent.width = windowWidth, .extent.height = windowHeight },
++					},
++				},
++				.pRasterizationState = &(VkPipelineRasterizationStateCreateInfo){
++					.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
++					.depthClampEnable        = VK_FALSE,
++					.rasterizerDiscardEnable = VK_FALSE,
++					.polygonMode             = VK_POLYGON_MODE_FILL,
++					.cullMode                = VK_CULL_MODE_FRONT_BIT,
++					.frontFace               = VK_FRONT_FACE_COUNTER_CLOCKWISE,
++					.depthBiasEnable         = VK_FALSE,
++					.lineWidth               = 1.0f,
++				},
++				.pMultisampleState = &(VkPipelineMultisampleStateCreateInfo){
++					.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
++					.rasterizationSamples  = VK_SAMPLE_COUNT_1_BIT,
++					.sampleShadingEnable   = VK_FALSE,
++					.alphaToCoverageEnable = VK_FALSE,
++					.alphaToOneEnable      = VK_FALSE,
++				},
++				.pDepthStencilState = &(VkPipelineDepthStencilStateCreateInfo){
++					.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
++					.depthTestEnable       = VK_FALSE,
++					.depthWriteEnable      = VK_FALSE,
++					.depthCompareOp        = VK_COMPARE_OP_LESS,
++					.depthBoundsTestEnable = VK_FALSE,
++					.stencilTestEnable     = VK_FALSE,
++				},
++				.pColorBlendState = &(VkPipelineColorBlendStateCreateInfo){
++					.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
++					.logicOpEnable   = VK_FALSE,
+ 					.attachmentCount = 1,
+ 					.pAttachments    = (VkPipelineColorBlendAttachmentState[1]){
+ 						{
+-							.blendEnable    = VK_FALSE,
++							.blendEnable = VK_FALSE,
+ 							.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
+ 								| VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+ 						},
+ 					},
+ 				},
+ 				.pDynamicState = NULL,
+-				.layout        = app->pipelineLayout[PIPELINE_FORWARD],
++				.layout        = app->pipelineLayout[PIPELINE_DEFERRED_LIGHTING],
+ 				.renderPass    = app->renderpass.renderPass,
+-				.subpass       = SUBPASS_FORWARD,
++				.subpass       = SUBPASS_DEFERRED_LIGHTING,
+ 			},
+-			[PIPELINE_POST]    = {
++			[PIPELINE_POST]              = {
+ 				.sType      = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+ 				.flags      = VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT,
+ 				.stageCount = 2,
+@@ -2516,9 +2737,12 @@ int32_t app_init_renderpass_framebuffers ( app_t* app, uint32_t windowWidth, uin
+ 				.renderPass      = app->renderpass.renderPass,
+ 				.attachmentCount = ATTACHMENT_COUNT,
+ 				.pAttachments    = (VkImageView[ATTACHMENT_COUNT]){
+-					[ATTACHMENT_INTERMEDIATE_COLOR] = app->attachments.imageViewIntermediateColor,
+-					[ATTACHMENT_INTERMEDIATE_DEPTH] = app->attachments.imageViewIntermediateDepth,
+-					[ATTACHMENT_FRAMEBUFFER]        = app->swapchain.imageViews[i],
++					[ATTACHMENT_INTERMEDIATE_GBUFFER1] = app->attachments.imageViewGBuffer[0],
++					[ATTACHMENT_INTERMEDIATE_GBUFFER2] = app->attachments.imageViewGBuffer[1],
++					[ATTACHMENT_INTERMEDIATE_GBUFFER3] = app->attachments.imageViewGBuffer[2],
++					[ATTACHMENT_INTERMEDIATE_COLOR]    = app->attachments.imageViewIntermediateColor,
++					[ATTACHMENT_INTERMEDIATE_DEPTH]    = app->attachments.imageViewIntermediateDepth,
++					[ATTACHMENT_FRAMEBUFFER]           = app->swapchain.imageViews[i],
+ 				},
+ 				.width  = windowWidth,
+ 				.height = windowHeight,
+@@ -2574,6 +2798,105 @@ int32_t app_destroy_renderpass_framebuffers ( app_t* app )
+ int32_t app_init_render_attachments ( app_t* app, uint32_t windowWidth, uint32_t windowHeight )
+ {
+ 	vkutil_image_desc transientAttachmentCreateInfo[TRANSIENT_ATTACHMENT_COUNT] = {
++		[TRANSIENT_ATTACHMENT_GBUFFER1] = {
++			.outImage   = &app->attachments.imageGBuffer[0],
++			.createInfo = &(VkImageCreateInfo){
++				.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
++				.imageType     = VK_IMAGE_TYPE_2D,
++				.format        = VK_FORMAT_R32G32B32A32_SFLOAT,
++				.extent        = { windowWidth, windowHeight, 1 },
++				.mipLevels     = 1,
++				.arrayLayers   = 1,
++				.samples       = VK_SAMPLE_COUNT_1_BIT,
++				.tiling        = VK_IMAGE_TILING_OPTIMAL,
++				.usage         = VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT
++					| VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT,
++				.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
++			},
++			.imageViewCount = 1, .imageViews = (vkutil_image_view_desc[1]){
++				{
++					.outImageView = &app->attachments.imageViewGBuffer[0],
++					.createInfo   = &(VkImageViewCreateInfo){
++						.sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
++						.viewType         = VK_IMAGE_VIEW_TYPE_2D,
++						.format           = VK_FORMAT_R32G32B32A32_SFLOAT,
++						.subresourceRange = {
++							.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
++							.levelCount = 1,
++							.layerCount = 1,
++						}
++					},
++				},
++			},
++			.accessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
++			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
++		},
++		[TRANSIENT_ATTACHMENT_GBUFFER2] = {
++			.outImage   = &app->attachments.imageGBuffer[1],
++			.createInfo = &(VkImageCreateInfo){
++				.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
++				.imageType     = VK_IMAGE_TYPE_2D,
++				.format        = VK_FORMAT_R32G32B32A32_SFLOAT,
++				.extent        = { windowWidth, windowHeight, 1 },
++				.mipLevels     = 1,
++				.arrayLayers   = 1,
++				.samples       = VK_SAMPLE_COUNT_1_BIT,
++				.tiling        = VK_IMAGE_TILING_OPTIMAL,
++				.usage         = VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT
++					| VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT,
++				.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
++			},
++			.imageViewCount = 1, .imageViews = (vkutil_image_view_desc[1]){
++				{
++					.outImageView = &app->attachments.imageViewGBuffer[1],
++					.createInfo   = &(VkImageViewCreateInfo){
++						.sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
++						.viewType         = VK_IMAGE_VIEW_TYPE_2D,
++						.format           = VK_FORMAT_R32G32B32A32_SFLOAT,
++						.subresourceRange = {
++							.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
++							.levelCount = 1,
++							.layerCount = 1,
++						}
++					},
++				},
++			},
++			.accessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
++			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
++		},
++		[TRANSIENT_ATTACHMENT_GBUFFER3] = {
++			.outImage   = &app->attachments.imageGBuffer[2],
++			.createInfo = &(VkImageCreateInfo){
++				.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
++				.imageType     = VK_IMAGE_TYPE_2D,
++				.format        = VK_FORMAT_R32G32B32A32_SFLOAT,
++				.extent        = { windowWidth, windowHeight, 1 },
++				.mipLevels     = 1,
++				.arrayLayers   = 1,
++				.samples       = VK_SAMPLE_COUNT_1_BIT,
++				.tiling        = VK_IMAGE_TILING_OPTIMAL,
++				.usage         = VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT
++					| VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT,
++				.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
++			},
++			.imageViewCount = 1, .imageViews = (vkutil_image_view_desc[1]){
++				{
++					.outImageView = &app->attachments.imageViewGBuffer[2],
++					.createInfo   = &(VkImageViewCreateInfo){
++						.sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
++						.viewType         = VK_IMAGE_VIEW_TYPE_2D,
++						.format           = VK_FORMAT_R32G32B32A32_SFLOAT,
++						.subresourceRange = {
++							.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
++							.levelCount = 1,
++							.layerCount = 1,
++						}
++					},
++				},
++			},
++			.accessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
++			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
++		},
+ 		[TRANSIENT_ATTACHMENT_COLOR] = {
+ 			.outImage   = &app->attachments.imageIntermediateColor,
+ 			.createInfo = &(VkImageCreateInfo){
+@@ -2651,7 +2974,25 @@ int32_t app_init_render_attachments ( app_t* app, uint32_t windowWidth, uint32_t
+ 
+ 	vkUpdateDescriptorSets (
+ 		app->device.device,
+-		1, (VkWriteDescriptorSet[1]){
++		2, (VkWriteDescriptorSet[2]){
++			{
++				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
++				.dstSet          = app->descriptorSet[PIPELINE_DEFERRED_LIGHTING],
++				.dstBinding      = 0,
++				.descriptorCount = 3,
++				.descriptorType  = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT,
++				.pImageInfo      = (VkDescriptorImageInfo[3]){
++					{
++						.imageView   = app->attachments.imageViewGBuffer[0],
++					},
++					{
++						.imageView   = app->attachments.imageViewGBuffer[1],
++					},
++					{
++						.imageView   = app->attachments.imageViewGBuffer[2],
++					},
++				},
++			},
+ 			{
+ 				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+ 				.dstSet          = app->descriptorSet[PIPELINE_POST],

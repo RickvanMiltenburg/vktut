@@ -1,0 +1,35 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 14
+VisualStudioVersion = 14.0.25420.1
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "vktut", "vktut\vktut.vcxproj", "{654BC8B2-3489-4374-8A3F-3375C14A7A73}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "OTHER STUFF", "OTHER STUFF", "{00586E26-8412-4A23-A7DF-514B8F7308C3}"
+	ProjectSection(SolutionItems) = preProject
+		asset_compile.bat = asset_compile.bat
+		asset_watchdog.py = asset_watchdog.py
+		..\README.html = ..\README.html
+	EndProjectSection
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "mconv", "mconv\mconv.vcxproj", "{E887F55A-8B94-40B8-898B-34D106045813}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{654BC8B2-3489-4374-8A3F-3375C14A7A73}.Debug|x64.ActiveCfg = Debug|x64
+		{654BC8B2-3489-4374-8A3F-3375C14A7A73}.Debug|x64.Build.0 = Debug|x64
+		{654BC8B2-3489-4374-8A3F-3375C14A7A73}.Release|x64.ActiveCfg = Release|x64
+		{654BC8B2-3489-4374-8A3F-3375C14A7A73}.Release|x64.Build.0 = Release|x64
+		{E887F55A-8B94-40B8-898B-34D106045813}.Debug|x64.ActiveCfg = Debug|x64
+		{E887F55A-8B94-40B8-898B-34D106045813}.Debug|x64.Build.0 = Debug|x64
+		{E887F55A-8B94-40B8-898B-34D106045813}.Release|x64.ActiveCfg = Release|x64
+		{E887F55A-8B94-40B8-898B-34D106045813}.Release|x64.Build.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

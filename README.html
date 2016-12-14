@@ -1,0 +1,205 @@
+﻿  **Vulkan tutorial session example application README**
+	  Rick van Miltenburg
+
+This is the README for the sample application shown during the Vulkan tutorial session at the
+NHTV Breda University of Applied Sciences given on the 14th of December, 2016 by Rick van Miltenburg.
+
+# Licence
+
+All materials not externally sourced are licenced under the MIT licence as below.
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+Copyright (c) 2016 Rick van Miltenburg, NHTV Breda University of Applied Sciences
+  
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+  
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the Software.
+  
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
+BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Note in particular the clause in the middle. Any source code *derived* from this lecture and the
+example application does **not require any explicit copyright/licence notice** unless it is a
+substantial portion of the code.
+
+# Coding conventions
+
+The source code as provided holds to the following conventions for clarity and consistency:
+
+- All Vulkan-related code is written in C instead of C++ (Explanation follows)
+- All lines of source code are restricted to 100 characters of code for easy side-by-side editing
+at 1080p resolution. Some lines might selectively exceed this limit.
+
+## Use of C
+
+*C99, specifically*
+
+Vulkan-related code is written in C for both convenience and clarity. Considerations concerning
+performance and related metrics were not related to this decision.
+
+C provides us with two convenience features not adopted in C++ (as of C++14 at least) that provide
+tangible benefit when working with Vulkan, as Vulkan very heavily relies upon recursive, temporary
+structures for passing arguments to functions:
+
+- **Designated initializers**
+
+Given any structure, such as for example...
+
+~~~~~~
+typedef struct foo { int a; const char* b; double c; } foo;
+~~~~~~
+
+... we are normally able to initialize such structures by the use of an initializer list in both C
+and C++ as follows:
+
+~~~~~~
+foo bar { 2, "hello", 10.3 };
+~~~~~~
+
+However, the parameters are non-obvious from the initialization perspective, especially for a large
+number of parameters. In addition, Vulkan is written to be compatible with C, and for this reason
+they do not contain constructors.
+
+We could solve the problem in both C and C++ as follows...
+
+~~~~~~
+foo bar = { 0 };    // Initialize all members to 0
+bar.a = 2;
+bar.b = "hello";
+bar.c = 10.3;
+~~~~~~
+
+... but C99 and on provide a helpful shorthand:
+
+~~~~~~
+foo bar { .a = 2, .b = "hello", .c = 10.3 };
+~~~~~~
+
+Members can be initialized out-of-order with the designated initializer (though this is best to be
+avoided) and members not specified in the designated initializer (eg if we left out ".b = ...")
+will be initialized to NULL/0.
+
+Since there are a lot of large structures with members we would selectively wish to initialize and
+some we do not care for, designated initializers are used frequently in the example application.
+
+- **Compound literals**
+
+While not that dissimilar from type constructors in C++, combined with designated initializers,
+this can be a powerful feature as it allows not only for inline temporary struct initialization,
+but also inline **array** and **pointer** initialization. Eg
+
+~~~~~~
+typedef struct foo_entry { const char* foo; } foo_entry;
+typedef struct foo_cnt { int count; } foo_cnt;
+typedef struct foos { foo_cnt foo_counter; foo_entry* foos; } foos;
+
+void DoSomething ( foos* bars )
+{
+
+}
+
+int main ( int argc, char* argv[] )
+{
+	DoSomething (
+		&(foos){
+			.foo_counter.count = 5, // Initialization in members is also allowed btw
+			.foos = (foo_entry[5]){
+				{ .foo = "hello" },
+				{ .foo = "world" },
+				{ .foo = "how" },
+				{ .foo = "are" },
+				{ .foo = "you" },
+			}
+		}
+	);
+}
+~~~~~~
+
+## The alternative
+
+While this is the solution I personally preferred, there is also a C++ wrapper for Vulkan in
+`vulkan.hpp`. (where the non-wrapped C equivalent is `vulkan.h`) This was not yet core when I was
+actively working on a Vulkan project, and as such, I have no experience working with it. I have
+only given it a cursory glance, and from that glance found it looked unnecessarily bloated to the
+point of potentially being detremental to learning the API itself rather than how it was wrapped.
+
+We encourage you to take a look at the Vulkan C++ header if you decide to implement Vulkan for one
+of your projects, but for this lecture, the header was dropped in favor for just going with C.
+
+# Running the source code
+
+The following steps are required to get the example to run on the target platform.
+
+## Setting up
+
+### Windows
+
+The following software is required:
+
+- Microsoft Visual Studio 2015
+- [Latest version of LunarG Vulkan SDK for Windows (1.0.30.0 at the time of writing)](https://vulkan.lunarg.com/sdk/home)
+
+The application itself does not need to be *compiled* on Vulkan-capable hardware, but does need to
+be *run* on Vulkan-capable hardware.
+
+**NOTE:** (Intel) Vulkan is only supported on Skylake integrated graphics chips and later. In
+addition, Vulkan support is **NOT** in the standard graphics drivers as provided by Intel! Vulkan
+support is only available in select Beta drivers, the most recent one being from June 29, 2016. It
+is advisable to develop on non-Intel hardware for the time being.
+
+When both pieces of software are installed, please check whether or not the `VK_SDK_PATH`
+environment variable is set to the proper path. To do so, type `%VK_SDK_PATH` in Windows Explorer.
+This should direct you to your Vulkan install folder.
+
+*If Visual Studio was open while installing the Vulkan SDK, **restart Visual Studio** so it will
+pick up the newly added / changed `VK_SDK_PATH` environment variable!*
+
+If everything checks out, open vktut.sln.
+
+### Android
+
+The following software is required:
+
+- Android Studio
+- Android SDK (API 23 or 24, depending upon the version of Android you are targeting)
+- [Latest version of LunarG Vulkan SDK for Windows (1.0.30.0 at the time of writing)](https://vulkan.lunarg.com/sdk/home)
+- A couple of other dependencies Android Studio will for the most part resolve, as I recall anyway
+
+With Android Studio etc setup, select "Open project" and open the "project/android" folder.
+
+## Shader compilation
+
+For the most part, pressing Run/Debug should run the application on your target platform. But
+before the application will run properly, you should compile the shaders. Without the shaders,
+the application is very unlikely to run appropriately. (Or rather: Guaranteed not to)
+
+There are two options for compiling the shaders.
+
+1. **shadercompile.bat**: This simply calls the Vulkan reference GLSL compiler to compile the GLSL
+   files to SPIR-V
+2. **shader_watchdog.py**: This is similar, but will keep on running even when complete. When
+   editing any of the shader files, the script will automatically recognize the modification
+   and trigger a recompile of that specific shader file. In addition, if any error occurs,
+   this script will scream at you. This is much better for the development pipeline, as you'll
+   never end up wondering why you don't see any difference after changing the shader and forgetting
+   to compile it, and you will quickly realize any potential mistakes right when saving the shader
+   file.
+   Do note that this script has external dependencies on Python and the Python "watchdog" package!
+
+
+<!-- Markdeep: -->
+<style class="fallback">
+	body {
+		visibility: hidden;
+	}
+</style>
+<script src="http://casual-effects.com/markdeep/latest/markdeep.min.js"></script>

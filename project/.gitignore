@@ -1,0 +1,9 @@
+*.opendb
+*.db
+*.log
+intermediate/*
+bin/*
+*.pdb
+*.ilk
+.vs
+tools/*

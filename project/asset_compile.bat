@@ -20,11 +20,11 @@
 
 @ECHO OFF
 
-glslangValidator -V -S vert -o "bin/shaders/shadow_v.spv" "vktut/assets/shaders/shadow_v.glsl"
-glslangValidator -V -S vert -o "bin/shaders/forward_v.spv" "vktut/assets/shaders/forward_v.glsl"
-glslangValidator -V -S frag -o "bin/shaders/forward_f.spv" "vktut/assets/shaders/forward_f.glsl"
-glslangValidator -V -S vert -o "bin/shaders/post_v.spv" "vktut/assets/shaders/post_v.glsl"
-glslangValidator -V -S frag -o "bin/shaders/post_f.spv" "vktut/assets/shaders/post_f.glsl"
+glslangValidator -V -S vert -o "bin/assets/shaders/shadow_v.spv" "vktut/assets/shaders/shadow_v.glsl"
+glslangValidator -V -S vert -o "bin/assets/shaders/forward_v.spv" "vktut/assets/shaders/forward_v.glsl"
+glslangValidator -V -S frag -o "bin/assets/shaders/forward_f.spv" "vktut/assets/shaders/forward_f.glsl"
+glslangValidator -V -S vert -o "bin/assets/shaders/post_v.spv" "vktut/assets/shaders/post_v.glsl"
+glslangValidator -V -S frag -o "bin/assets/shaders/post_f.spv" "vktut/assets/shaders/post_f.glsl"
 
 "tools\mconv.exe" "vktut/assets/models/cube.obj" "bin/assets/models/cube.bobj"
 "tools\mconv.exe" "vktut/assets/models/texcube.obj" "bin/assets/models/texcube.bobj"
